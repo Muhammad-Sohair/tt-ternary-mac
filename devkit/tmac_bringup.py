@@ -60,25 +60,18 @@ def s16(v):
     return v - 65536 if v & 0x8000 else v
 
 
-def s24(v):
-    return v - (1 << 24) if v & 0x800000 else v
-
-
 def read_state(tt):
-    rx = xfer(tt, [0x41], 3 * M.ROWS)
-    raw = [s24(rx[1 + 3 * r] << 16 | rx[2 + 3 * r] << 8 | rx[3 + 3 * r]) for r in range(M.ROWS)]
     rx = xfer(tt, [0x40], 2 * M.ROWS)
-    a16 = [s16(rx[1 + 2 * r] << 8 | rx[2 + 2 * r]) for r in range(M.ROWS)]
+    acc = [s16(rx[1 + 2 * r] << 8 | rx[2 + 2 * r]) for r in range(M.ROWS)]
     sat_b, status = xfer(tt, [0x00], 2)[1:]
-    return raw, a16, sat_b, status
+    return acc, sat_b, status
 
 
 def compare(tt, m, tag):
-    raw, a16, sat_b, status = read_state(tt)
-    m.note_read_acc()
-    ok = raw == m.acc and a16 == m.read_acc16() and sat_b == m.sat_byte() and status == m.status()
+    acc, sat_b, status = read_state(tt)
+    ok = acc == m.acc and sat_b == m.sat_byte() and status == m.status()
     if not ok:
-        print(tag, "MISMATCH raw", raw, "model", m.acc, "a16", a16, "model", m.read_acc16(),
+        print(tag, "MISMATCH acc", acc, "model", m.acc,
               "sat 0x%02x/0x%02x status 0x%02x/0x%02x" % (sat_b, m.sat_byte(), status, m.status()))
     return ok
 
@@ -116,9 +109,9 @@ def s3_hand_example(tt):
     xfer(tt, [0x10, 0xF2, 0xF2] + [121] * 6)         # row 0 all +1, rows 1-3 all 0 (121 = digits 1)
     xfer(tt, [0x20] + list(range(1, 11)))
     xfer(tt, [0x31])
-    raw = read_state(tt)[0]
-    print("S3 hand example: raw", raw, "(want [55, 0, 0, 0])")
-    return raw == [55, 0, 0, 0]
+    acc = read_state(tt)[0]
+    print("S3 hand example: acc", acc, "(want [55, 0, 0, 0])")
+    return acc == [55, 0, 0, 0]
 
 
 def s4_decoder(tt):
@@ -155,8 +148,6 @@ def s5_random(tt, trials=200, seed=1):
         clear = t % 3 == 0
         xfer(tt, [0x31 if clear else 0x30])
         m.compute(clear)
-        m.shift = rng.next(32)
-        xfer(tt, [0x80, m.shift])
         if not compare(tt, m, "S5 trial %d" % t):
             fails += 1
     print("S5 random matvec: %d/%d trials failed" % (fails, trials))
@@ -166,7 +157,7 @@ def s5_random(tt, trials=200, seed=1):
 def s6_saturation(tt):
     m = M.TMAC()
     xfer(tt, [0x70])
-    W = [[1] * 10, [-1] * 10, [1] * 10, [0] * 10]
+    W = [[1] * 10, [-1] * 10, [-1] * 10, [1] * 5 + [0] * 5]
     xfer(tt, [0x10] + M.pack_matrix(W))
     xfer(tt, [0x20] + [127] * 10)
     for i, b in enumerate(M.pack_matrix(W)):
@@ -176,8 +167,8 @@ def s6_saturation(tt):
     for _ in range(27):
         xfer(tt, [0x30])
         m.compute(False)
-    ok = compare(tt, m, "S6 readout sat")
-    print("S6 readout saturation:", "ok" if ok else "FAIL")
+    ok = compare(tt, m, "S6 saturation") and m.acc[:3] == [M.ACC_MAX, M.ACC_MIN, M.ACC_MIN]
+    print("S6 saturation:", "ok" if ok else "FAIL")
     return ok
 
 

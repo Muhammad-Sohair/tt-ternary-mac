@@ -8,11 +8,10 @@ multipliers. It carries an FPGA accelerator (Zynq-7020, 512 PEs) onto SKY130.
   weight). A row of 10 weights is 2 bytes and the whole array is 8 bytes. Bytes 243–255 are illegal: they load
   as zeros and set the sticky `ILLEGAL` flag.
 - **Activations** are 10 signed int8 values shared by all four rows.
-- **Compute** forms `dot_r = Σ_c w[r][c]·a[c]` for all rows in one clock and adds it into a 24-bit
-  saturating accumulator (`CMP`), or overwrites it (`CMP_CLR`). Saturation clamps and sets a sticky per-row
-  flag. 24 bits are exact for any reduction length K ≤ 65,535.
-- **Readout** returns `sat16(acc >>> shift)` per row: an arithmetic right shift (floor division), then a clamp
-  to int16, with `shift` = 0–31 set by command. `READ_RAW` returns the exact 24-bit values.
+- **Compute** forms `dot_r = Σ_c w[r][c]·a[c]` for all rows (pipelined over two clocks) and adds it into a
+  16-bit saturating accumulator (`CMP`), or overwrites it (`CMP_CLR`). Saturation clamps to +32767 / −32768
+  (never wraps) and sets a sticky per-row flag. Any reduction length K ≤ 255 is always exact; longer K is
+  exact unless a partial sum leaves the int16 range.
 - **BIST** runs 32 LFSR-generated rounds through the real datapath and compares a 16-bit signature with the
   value computed by the Python reference model. PASS/DONE appear on output pins.
 
@@ -30,16 +29,15 @@ before the first SCK edge, and high ≥ 8 clk between frames.
 | 0x21 | LOAD_AC | in: activations; after every 10th byte, compute (accumulate). Stream any number of vectors |
 | 0x30 | CMP | acc += W·a |
 | 0x31 | CMP_CLR | acc = W·a |
-| 0x40 | READ_ACC | out: 4 × int16 `sat16(acc >>> shift)`, row 0 first, MSB first |
-| 0x41 | READ_RAW | out: 4 × 24-bit accumulators, MSB first |
+| 0x40 | READ_ACC | out: 4 × int16 accumulators, row 0 first, MSB first |
 | 0x50 | READ_W | out: 10 bytes of stored 2-bit codes (−1=11, 0=00, +1=01), 4 per byte, lowest index in LSBs |
 | 0x60 | BIST | start the self-test (busy for 672 clk) |
-| 0x61 | READ_SIG | out: 16-bit BIST signature, MSB first (expected 0xC8C3) |
+| 0x61 | READ_SIG | out: 16-bit BIST signature, MSB first (expected 0x2504) |
 | 0x70 | CLEAR | zero accumulators, SAT and ILLEGAL flags |
-| 0x80 | SHIFT | in: one byte, readout shift = bits 4:0 |
 
-Status byte: `bit7 = 1, bit6 BIST_BUSY, bit5 BIST_DONE, bit4 BIST_PASS, bit3 ILLEGAL, bit2 ANY_SAT,
-bit1 RSAT (sticky: a READ_ACC returned a clamped value since the last CLEAR), bit0 = 1`. After reset it reads 0x81.
+Other opcodes do nothing and return status. Status byte: `bit7 = 1, bit6 BIST_BUSY, bit5 BIST_DONE,
+bit4 BIST_PASS, bit3 ILLEGAL, bit2 ANY_SAT, bit1 = 0, bit0 = 1`. After reset it reads 0x81. Reset takes
+effect 2 clocks after `rst_n` (synchroniser).
 
 ## How to test
 

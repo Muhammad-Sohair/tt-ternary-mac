@@ -7,17 +7,14 @@ cocotb SPI master and compares every observable value with the model.
 |---|---|
 | test_reset_state | status 0x81; weights, accumulators and flags are zero after reset |
 | test_decoder_exhaustive | all 256 byte values: PACKING_FORMAT v1.0 decode, illegal 243–255 → zeros + sticky flag, CLEAR |
-| test_random_matvec | random weights and activations (incl. −128/127), CMP vs CMP_CLR, random shifts 0–31 |
+| test_random_matvec | random weights and activations (incl. −128/127), CMP vs CMP_CLR |
 | test_streamed_matvec | LOAD_AC streaming: K-chunked matrix-vector product |
-| test_shift_floor_semantics | readout uses floor division: −1 >>> 1 = −1, −3 >>> 1 = −2 |
-| test_readout_saturation | int16 clamp on READ_ACC, RSAT status bit, READ_RAW still exact |
-| test_internal_saturation | 24-bit clamp and sticky SAT flags (RTL only: ~6,600 transactions) |
+| test_signed_readback | negative / boundary results read back as two's-complement int16 |
+| test_saturation | clamp at +32767 / −32768, sticky per-row SAT flags, accumulating back from the rails, CLEAR |
 | test_bist | BIST via opcode and pin, signature = model, SPI writes ignored while busy |
 | test_spi_abort_and_reset | a half-sent byte writes nothing; rst_n mid-frame restores the reset state |
 
-Mutation check (6 injected bugs, all caught): ±1 code swap in the decoder (2 tests), logical instead of
-arithmetic shift, missing +1 carry-ins of negated terms, wrapping instead of saturating, LOAD_AC not
-computing.
+Mutation check: see notes/03_rtl_and_verification.md.
 
 ## Running on Windows
 
