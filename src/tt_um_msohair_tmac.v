@@ -10,7 +10,7 @@
 
 module tt_um_msohair_tmac #(
     parameter ROWS  = 4,
-    parameter COLS  = 5,
+    parameter COLS  = 10,
     parameter ACC_W = 24              // internal; exact for K <= 65,535 (|acc| <= 128*K)
 ) (
     input  wire [7:0] ui_in,
@@ -26,7 +26,7 @@ module tt_um_msohair_tmac #(
   // BEGIN GENERATED BIST CONSTANTS (test/tmac_model.py --write-rtl; do not edit)
   localparam        BIST_ITERS    = 32;
   localparam [15:0] BIST_SEED     = 16'hACE1;
-  localparam [15:0] BIST_EXPECTED = 16'hA97E;
+  localparam [15:0] BIST_EXPECTED = 16'hC8C3;
   // END GENERATED BIST CONSTANTS
 
   localparam NBYTES  = ROWS * COLS / 5;

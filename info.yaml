@@ -3,12 +3,12 @@ project:
   title:        "TMAC: ternary (1.58-bit) MAC array"      # Project title
   author:       "Muhammad Sohair Khan"      # Your name
   discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  "4x5 multiplier-free ternary weight-stationary MAC array, base-3 packed weights, 24-bit acc, SPI, BIST"      # One line description of what your project does
+  description:  "4x10 multiplier-free ternary weight-stationary MAC array, base-3 packed weights, 24-bit acc, SPI, BIST"      # One line description of what your project does
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
   clock_hz:     50000000       # Clock frequency in Hz (or 0 if not applicable)
 
   # How many tiles your design occupies? A single tile is about 167x108 uM.
-  tiles: "2x2"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
+  tiles: "3x2"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
 
   # Your top module name must start with "tt_um_". Make it unique by including your github username:
   top_module:  "tt_um_msohair_tmac"
