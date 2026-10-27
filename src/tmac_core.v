@@ -37,7 +37,7 @@ module tmac_core #(
 
     input  wire                     compute,      // one-cycle strobe
     input  wire                     clear,        // with compute: acc = dot instead of acc + dot
-    input  wire                     acc_rst,      // zero accumulators and flags
+    input  wire                     acc_rst,      // zero accumulators and all sticky flags
 
     output wire [ROWS*ACC_W-1:0]    acc_flat,
     output reg  [ROWS-1:0]          sat_flags,    // sticky
@@ -60,10 +60,14 @@ module tmac_core #(
   wire       dec_illegal;
   trit_decoder u_dec (.byte_in(w_byte), .codes(dec_codes), .illegal(dec_illegal));
 
-  integer i, k;
+  // Each always block has its own loop variables: sharing one integer
+  // between blocks simulates fine but is a multiple-driver error in synthesis.
+  integer iw, k;
   always @(posedge clk) begin
     if (rst) begin
-      for (i = 0; i < ROWS*COLS; i = i + 1) w[i] <= 2'b00;
+      for (iw = 0; iw < ROWS*COLS; iw = iw + 1) w[iw] <= 2'b00;
+      illegal_seen <= 1'b0;
+    end else if (acc_rst) begin
       illegal_seen <= 1'b0;
     end else if (w_we) begin
       for (k = 0; k < 5; k = k + 1) w[w_addr*5 + k] <= dec_codes[2*k +: 2];
@@ -71,9 +75,10 @@ module tmac_core #(
     end
   end
 
+  integer ia;
   always @(posedge clk) begin
     if (rst) begin
-      for (i = 0; i < COLS; i = i + 1) a[i] <= 8'sd0;
+      for (ia = 0; ia < COLS; ia = ia + 1) a[ia] <= 8'sd0;
     end else if (a_we) begin
       a[a_addr] <= a_byte;
     end
@@ -107,23 +112,24 @@ module tmac_core #(
 
   // ---- saturating accumulate ----
   reg signed [ACC_W:0] sum;
+  integer ra;
   always @(posedge clk) begin
     if (rst || acc_rst) begin
-      for (r = 0; r < ROWS; r = r + 1) acc[r] <= {ACC_W{1'b0}};
+      for (ra = 0; ra < ROWS; ra = ra + 1) acc[ra] <= {ACC_W{1'b0}};
       sat_flags <= {ROWS{1'b0}};
     end else if (compute) begin
-      for (r = 0; r < ROWS; r = r + 1) begin
+      for (ra = 0; ra < ROWS; ra = ra + 1) begin
         // Both operands are signed, so they sign-extend to ACC_W+1 bits:
         // the sum cannot wrap before the range check below.
-        sum = clear ? dot[r] : acc[r] + dot[r];
+        sum = clear ? dot[ra] : acc[ra] + dot[ra];
         if (sum > ACC_MAX) begin
-          acc[r] <= ACC_MAX[ACC_W-1:0];
-          sat_flags[r] <= 1'b1;
+          acc[ra] <= ACC_MAX[ACC_W-1:0];
+          sat_flags[ra] <= 1'b1;
         end else if (sum < ACC_MIN) begin
-          acc[r] <= ACC_MIN[ACC_W-1:0];
-          sat_flags[r] <= 1'b1;
+          acc[ra] <= ACC_MIN[ACC_W-1:0];
+          sat_flags[ra] <= 1'b1;
         end else begin
-          acc[r] <= sum[ACC_W-1:0];
+          acc[ra] <= sum[ACC_W-1:0];
         end
       end
     end

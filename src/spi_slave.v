@@ -5,7 +5,11 @@
  * SPI slave, mode 0 (CPOL=0, CPHA=0), MSB first, oversampled by clk.
  * SCK, CS_n and MOSI are asynchronous to clk: each passes through a
  * two-flop synchroniser and SCK edges are detected in the clk domain.
- * Requirement: f_SCK <= f_clk / 8 (each SCK phase >= 4 clk cycles).
+ * Requirement: f_SCK <= f_clk / 16 (each SCK phase >= 8 clk cycles).
+ * MISO changes ~3 clk after an SCK fall (synchroniser + edge detect) and
+ * the TT mux adds up to ~20 ns more, so a shorter low phase would leave the
+ * master sampling MISO as it changes. Hold CS_n low >= 8 clk before the
+ * first SCK rise and keep it high >= 8 clk between transactions.
  *
  *   rx_valid  one-cycle pulse when a full byte has arrived (rx_byte valid)
  *   tx_byte   sampled when a byte completes (and at CS_n fall) as the next

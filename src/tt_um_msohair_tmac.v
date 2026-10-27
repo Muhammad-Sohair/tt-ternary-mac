@@ -26,7 +26,7 @@ module tt_um_msohair_tmac #(
   // BEGIN GENERATED BIST CONSTANTS (test/tmac_model.py --write-rtl; do not edit)
   localparam        BIST_ITERS    = 32;
   localparam [15:0] BIST_SEED     = 16'hACE1;
-  localparam [15:0] BIST_EXPECTED = 16'h0000;
+  localparam [15:0] BIST_EXPECTED = 16'hC8C3;
   // END GENERATED BIST CONSTANTS
 
   localparam NBYTES  = ROWS * COLS / 5;

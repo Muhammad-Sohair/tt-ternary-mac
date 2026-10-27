@@ -20,3 +20,4 @@ practice/*/src/config_merged.json
 **/__pycache__/
 /test/gate_level_netlist.v
 rtl_dev/.syn/
+.syn/
