@@ -270,7 +270,8 @@ async def test_readout_saturation(dut):
     await check_all(dut, m, "after CLEAR")
 
 
-@cocotb.test(skip=GL)
+# Skipped at gate level in CI (slow); set TMAC_GL_SLOW=1 to run it on the netlist too.
+@cocotb.test(skip=GL and not os.environ.get("TMAC_GL_SLOW"))
 async def test_internal_saturation(dut):
     """SLOW (RTL only): 24-bit accumulators clamp at +/-(2^23) and set sticky per-row SAT
     flags instead of wrapping; CLEAR resets them."""
