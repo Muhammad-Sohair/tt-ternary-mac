@@ -56,6 +56,8 @@
   "//": "(inference from these runs, not verified in OpenROAD's source). 60 % aims at ~0.6 ns.",
   "DESIGN_REPAIR_MAX_SLEW_PCT": 60,
   "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 60,
+  "//": "V4b: weight bits each fan out to 8 mask gates; cap buffer fanout at 8 (PDK default 10).",
+  "MAX_FANOUT_CONSTRAINT": 8,
   "//": "Post-placement repair works on estimated wiring and left 1,303 ss slew violations; run design",
   "//": "repair again after global routing, on near-real parasitics (off by default).",
   "RUN_POST_GRT_DESIGN_REPAIR": true,
