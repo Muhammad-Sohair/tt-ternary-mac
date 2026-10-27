@@ -5,7 +5,8 @@ The SPI master below drives the pins the way the devkit's RP2040 will:
 mode 0, MSB first, SCK half-period = HALF clk cycles (f_SCK = f_clk / 16),
 sampling MISO just before each rising edge.
 
-GATES=yes runs the same tests on the hardened netlist.
+GATES=yes runs the same tests on the hardened netlist. The 24-bit internal
+saturation test needs ~6,600 transactions; it runs in RTL only (see SLOW).
 """
 
 import os
@@ -15,14 +16,15 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge
 
-from tmac_model import ACC_MAX, ACC_MIN, COLS, ROWS, TMAC, bist_expected, decode, pack_matrix
+from tmac_model import (ACC_MAX, ACC_MIN, BIST_ITERS, COLS, NBYTES, ROWS, TMAC,
+                        bist_expected, decode, pack_matrix, sat16_shift)
 
 HALF = 8                                   # clk cycles per SCK phase
 GL = os.environ.get("GATES") == "yes"
 
 OP_STATUS, OP_LOAD_W, OP_LOAD_A, OP_LOAD_AC = 0x00, 0x10, 0x20, 0x21
-OP_CMP, OP_CMP_CLR, OP_READ_A = 0x30, 0x31, 0x40
-OP_READ_W, OP_BIST, OP_READ_S, OP_CLEAR = 0x50, 0x60, 0x61, 0x70
+OP_CMP, OP_CMP_CLR, OP_READ_A, OP_READ_R = 0x30, 0x31, 0x40, 0x41
+OP_READ_W, OP_BIST, OP_READ_S, OP_CLEAR, OP_SHIFT = 0x50, 0x60, 0x61, 0x70, 0x80
 
 UO_MISO, UO_DONE, UO_PASS, UO_ILL, UO_SAT, UO_BUSY, UO_ACT = 0, 2, 3, 4, 5, 6, 7
 
@@ -97,6 +99,15 @@ async def read_acc16(dut):
     return vals
 
 
+async def read_raw(dut):
+    rx = await xfer(dut, [OP_READ_R], 3 * ROWS)
+    vals = []
+    for r in range(ROWS):
+        v = rx[1 + 3 * r] << 16 | rx[2 + 3 * r] << 8 | rx[3 + 3 * r]
+        vals.append(v - (1 << 24) if v & 0x800000 else v)
+    return vals
+
+
 async def read_codes(dut):
     n = (ROWS * COLS + 3) // 4
     return (await xfer(dut, [OP_READ_W], n))[1:]
@@ -104,8 +115,11 @@ async def read_codes(dut):
 
 async def check_all(dut, m, tag=""):
     """Compare every observable register with the model."""
-    acc = await read_acc16(dut)
-    assert acc == m.acc, f"{tag}: acc {acc} != model {m.acc}"
+    raw = await read_raw(dut)
+    assert raw == m.acc, f"{tag}: raw acc {raw} != model {m.acc}"
+    acc16 = await read_acc16(dut)
+    m.note_read_acc()
+    assert acc16 == m.read_acc16(), f"{tag}: sat16 {acc16} != model {m.read_acc16()} (shift {m.shift})"
     sat_b, status = (await read_status(dut))[1:]
     assert sat_b == m.sat_byte(), f"{tag}: sat flags 0x{sat_b:02x} != 0x{m.sat_byte():02x}"
     assert status == m.status(), f"{tag}: status 0x{status:02x} != 0x{m.status():02x}"
@@ -151,7 +165,7 @@ async def test_decoder_exhaustive(dut):
 
 @cocotb.test()
 async def test_random_matvec(dut):
-    """Random weights/activations (incl. -128/127 edges), CMP_CLR and CMP."""
+    """Random weights/activations (incl. -128/127 edges), CMP_CLR and CMP, random shifts."""
     await start(dut)
     rng = random.Random(2026)
     m = TMAC()
@@ -169,6 +183,8 @@ async def test_random_matvec(dut):
         clear = trial % 3 == 0
         await xfer(dut, [OP_CMP_CLR if clear else OP_CMP])
         m.compute(clear)
+        m.shift = rng.choice((0, 0, 1, 3, 7, 8, 15, 23, 31))
+        await xfer(dut, [OP_SHIFT, m.shift | (rng.randint(0, 7) << 5)])   # upper bits must be ignored
         await check_all(dut, m, f"trial {trial}")
 
 
@@ -198,8 +214,8 @@ async def test_streamed_matvec(dut):
 
 
 @cocotb.test()
-async def test_signed_readback(dut):
-    """Negative and boundary results read back as two's-complement int16, MSB first."""
+async def test_shift_floor_semantics(dut):
+    """Readout is floor(acc / 2^shift), not truncation: -1 >>> 1 = -1, -3 >>> 1 = -2."""
     await start(dut)
     m = TMAC()
     # row r has a single +1 weight, in column r, so acc[r] = acts[r] = targets[r]
@@ -215,40 +231,67 @@ async def test_signed_readback(dut):
         m.write_act(i, x & 0xFF)
     m.compute(clear=True)
     assert m.acc == targets
-    await check_all(dut, m, "signed")
+    for sh in (0, 1, 2, 7, 8, 23, 31):
+        m.shift = sh
+        await xfer(dut, [OP_SHIFT, sh])
+        got = await read_acc16(dut)
+        assert got == [t >> sh for t in targets], f"shift {sh}: {got}"
+        await check_all(dut, m, f"shift {sh}")
 
 
 @cocotb.test()
-async def test_saturation(dut):
-    """Accumulators clamp at +32767 / -32768 and set sticky per-row SAT flags instead
-    of wrapping; a clamped value is a real value (accumulating back down from it works);
-    CLEAR resets value and flags."""
+async def test_readout_saturation(dut):
+    """acc beyond int16 at shift 0 clamps to +32767 / -32768 on READ_ACC and sets the
+    sticky RSAT status bit; READ_RAW still shows the exact 24-bit value. RSAT stays
+    set after a rescale removes the clamp, until CLEAR."""
     await start(dut)
     m = TMAC()
-    # per compute: row 0 +1270, rows 1-2 -1270, row 3 +635 (stays in range: control row)
-    W = [[1] * COLS, [-1] * COLS, [-1] * COLS, [1] * 5 + [0] * 5]
+    W = [[1] * COLS, [-1] * COLS, [1] * COLS, [0] * COLS]
     acts = [127] * COLS
-
-    async def load(Wm):
-        await xfer(dut, [OP_LOAD_W] + pack_matrix(Wm))
-        for i, byte in enumerate(pack_matrix(Wm)):
-            m.write_wbyte(i, byte)
-
-    await load(W)
+    await xfer(dut, [OP_LOAD_W] + pack_matrix(W))
     await xfer(dut, [OP_LOAD_A] + acts)
+    for i, byte in enumerate(pack_matrix(W)):
+        m.write_wbyte(i, byte)
     for i, x in enumerate(acts):
         m.write_act(i, x)
-    for _ in range(ACC_MAX // 1270 + 2):                 # 27 computes: rows 0-2 saturate
+    for n in range(32767 // (127 * COLS) + 2):            # just past int16 at shift 0
         await xfer(dut, [OP_CMP])
         m.compute(clear=False)
-    assert m.acc[:3] == [ACC_MAX, ACC_MIN, ACC_MIN] and m.sat_flags == [True, True, True, False]
-    await check_all(dut, m, "saturated")
+    assert m.read_acc16()[:2] == [32767, -32768] and m.any_rsat()
+    await check_all(dut, m, "readout sat")
+    assert m.rsat
+    m.shift = 1                                           # rescaling removes the clamp...
+    await xfer(dut, [OP_SHIFT, 1])
+    assert not m.any_rsat()
+    await check_all(dut, m, "readout sat, shift 1")
+    assert m.rsat                                         # ...but RSAT is sticky
+    await xfer(dut, [OP_CLEAR])
+    m.clear()
+    await check_all(dut, m, "after CLEAR")
+
+
+@cocotb.test(skip=GL)
+async def test_internal_saturation(dut):
+    """SLOW (RTL only): 24-bit accumulators clamp at +/-(2^23) and set sticky per-row SAT
+    flags instead of wrapping; CLEAR resets them."""
+    await start(dut)
+    m = TMAC()
+    # per compute: row 0 +127*COLS, rows 1-2 -127*COLS, row 3 about half (control row)
+    W = [[1] * COLS, [-1] * COLS, [-1] * COLS, [1] * (COLS // 2) + [0] * (COLS - COLS // 2)]
+    acts = [127] * COLS
+    await xfer(dut, [OP_LOAD_W] + pack_matrix(W))
+    await xfer(dut, [OP_LOAD_A] + [x & 0xFF for x in acts])
+    for i, byte in enumerate(pack_matrix(W)):
+        m.write_wbyte(i, byte)
+    for i, x in enumerate(acts):
+        m.write_act(i, x & 0xFF)
+    n = ACC_MAX // (127 * COLS) + 3
+    for _ in range(n):
+        await xfer(dut, [OP_CMP])
+        m.compute(clear=False)
+    assert m.acc[0] == ACC_MAX and m.acc[1] == ACC_MIN and m.sat_flags[:3] == [True] * 3 and not m.sat_flags[3]
+    await check_all(dut, m, "internal sat")
     assert uo_bit(dut, UO_SAT) == 1
-    await load([[-1] * COLS, [1] * COLS, [0] * COLS, [0] * COLS])
-    await xfer(dut, [OP_CMP])                            # 32767 - 1270, -32768 + 1270
-    m.compute(clear=False)
-    assert m.acc[:2] == [ACC_MAX - 1270, ACC_MIN + 1270]
-    await check_all(dut, m, "back from the rails")
     await xfer(dut, [OP_CLEAR])
     m.clear()
     await check_all(dut, m, "after CLEAR")
@@ -308,6 +351,7 @@ async def test_spi_abort_and_reset(dut):
     # now load something, then reset in the middle of a transaction
     await xfer(dut, [OP_LOAD_A] + [5] * COLS)
     await xfer(dut, [OP_CMP_CLR])
+    await xfer(dut, [OP_SHIFT, 3])
     set_ui(dut, csn=0)
     await ClockCycles(dut.clk, 20, rising=False)
     dut.rst_n.value = 0

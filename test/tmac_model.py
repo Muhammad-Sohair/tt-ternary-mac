@@ -11,7 +11,7 @@ It runs unchanged under MicroPython on the devkit (devkit/tmac_bringup.py
 imports it), so the host-only imports live inside the functions that use them.
 """
 
-ROWS, COLS, ACC_W = 4, 10, 16
+ROWS, COLS, ACC_W = 4, 5, 24
 BPR = COLS // 5                     # packed bytes per row
 NBYTES = ROWS * BPR
 ACC_MAX, ACC_MIN = (1 << (ACC_W - 1)) - 1, -(1 << (ACC_W - 1))
@@ -54,6 +54,13 @@ def sat(v, lo, hi):
     return (min(max(v, lo), hi), v > hi or v < lo)
 
 
+def sat16_shift(acc, shift):
+    """Readout requantisation, as the FPGA's sat16_shift: arithmetic shift
+    (Python >> on ints is floor division, matching Verilog >>> on signed), then clamp."""
+    v = acc >> shift
+    return sat(v, -32768, 32767)
+
+
 def to_s8(b):
     return b - 256 if b >= 128 else b
 
@@ -69,6 +76,8 @@ class TMAC:
         self.acc = [0] * ROWS
         self.sat_flags = [False] * ROWS
         self.illegal = False
+        self.rsat = False                   # sticky: a READ_ACC returned a clamped value
+        self.shift = 0
         self.bist_done = self.bist_pass = False
         self.signature = 0
 
@@ -95,11 +104,23 @@ class TMAC:
         self.acc = [0] * ROWS
         self.sat_flags = [False] * ROWS
         self.illegal = False
+        self.rsat = False
 
     # readout views
+    def read_acc16(self):
+        return [sat16_shift(x, self.shift)[0] for x in self.acc]
+
+    def any_rsat(self):
+        """Would any row clamp on READ_ACC at the current shift?"""
+        return any(sat16_shift(x, self.shift)[1] for x in self.acc)
+
+    def note_read_acc(self):
+        """Call after the chip has served a full READ_ACC: sets the sticky RSAT flag."""
+        self.rsat |= self.any_rsat()
+
     def status(self, busy=False):
         return (0x80 | busy << 6 | self.bist_done << 5 | self.bist_pass << 4
-                | self.illegal << 3 | any(self.sat_flags) << 2 | 1)
+                | self.illegal << 3 | any(self.sat_flags) << 2 | self.rsat << 1 | 1)
 
     def sat_byte(self):
         return sum(1 << r for r in range(ROWS) if self.sat_flags[r])
