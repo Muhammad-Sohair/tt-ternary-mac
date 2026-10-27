@@ -180,16 +180,15 @@ module tt_um_msohair_tmac #(
   wire rs_lo = (rshift < -$signed(32'sd32768));
   wire [15:0] rsat16 = rs_hi ? 16'h7FFF : rs_lo ? 16'h8000 : rshift[15:0];
 
-  // live flag: some row would clamp at the current shift
+  // Sticky RSAT: set when a READ_ACC byte that came from a clamped value
+  // has been sent; cleared by CLEAR and reset. (A live "would clamp" flag
+  // needed a shifter per row: four 24-bit barrel shifters for one bit.)
   reg any_rsat;
-  reg signed [ACC_W-1:0] tmp;
-  integer q;
-  always @* begin
-    any_rsat = 1'b0;
-    for (q = 0; q < ROWS; q = q + 1) begin
-      tmp = $signed(acc_flat[q*ACC_W +: ACC_W]) >>> shift;
-      if (tmp > $signed(32'sd32767) || tmp < -$signed(32'sd32768)) any_rsat = 1'b1;
-    end
+  always @(posedge clk) begin
+    if (rst || s_acc_rst || bist_go || bist_pin_go)
+      any_rsat <= 1'b0;
+    else if (spi_active && rx_valid && have_op && op == OP_READ_A && idx < NOUT_B && (rs_hi || rs_lo))
+      any_rsat <= 1'b1;
   end
 
   // ---------------- MISO data ----------------

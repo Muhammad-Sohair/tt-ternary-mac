@@ -76,6 +76,7 @@ class TMAC:
         self.acc = [0] * ROWS
         self.sat_flags = [False] * ROWS
         self.illegal = False
+        self.rsat = False                   # sticky: a READ_ACC returned a clamped value
         self.shift = 0
         self.bist_done = self.bist_pass = False
         self.signature = 0
@@ -103,17 +104,23 @@ class TMAC:
         self.acc = [0] * ROWS
         self.sat_flags = [False] * ROWS
         self.illegal = False
+        self.rsat = False
 
     # readout views
     def read_acc16(self):
         return [sat16_shift(x, self.shift)[0] for x in self.acc]
 
     def any_rsat(self):
+        """Would any row clamp on READ_ACC at the current shift?"""
         return any(sat16_shift(x, self.shift)[1] for x in self.acc)
+
+    def note_read_acc(self):
+        """Call after the chip has served a full READ_ACC: sets the sticky RSAT flag."""
+        self.rsat |= self.any_rsat()
 
     def status(self, busy=False):
         return (0x80 | busy << 6 | self.bist_done << 5 | self.bist_pass << 4
-                | self.illegal << 3 | any(self.sat_flags) << 2 | self.any_rsat() << 1 | 1)
+                | self.illegal << 3 | any(self.sat_flags) << 2 | self.rsat << 1 | 1)
 
     def sat_byte(self):
         return sum(1 << r for r in range(ROWS) if self.sat_flags[r])

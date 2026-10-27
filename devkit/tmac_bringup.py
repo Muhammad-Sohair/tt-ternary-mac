@@ -75,6 +75,7 @@ def read_state(tt):
 
 def compare(tt, m, tag):
     raw, a16, sat_b, status = read_state(tt)
+    m.note_read_acc()
     ok = raw == m.acc and a16 == m.read_acc16() and sat_b == m.sat_byte() and status == m.status()
     if not ok:
         print(tag, "MISMATCH raw", raw, "model", m.acc, "a16", a16, "model", m.read_acc16(),

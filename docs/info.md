@@ -39,7 +39,7 @@ before the first SCK edge, and high ≥ 8 clk between frames.
 | 0x80 | SHIFT | in: one byte, readout shift = bits 4:0 |
 
 Status byte: `bit7 = 1, bit6 BIST_BUSY, bit5 BIST_DONE, bit4 BIST_PASS, bit3 ILLEGAL, bit2 ANY_SAT,
-bit1 RSAT (a row would clamp on READ_ACC at the current shift), bit0 = 1`. After reset it reads 0x81.
+bit1 RSAT (sticky: a READ_ACC returned a clamped value since the last CLEAR), bit0 = 1`. After reset it reads 0x81.
 
 ## How to test
 

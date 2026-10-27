@@ -118,6 +118,7 @@ async def check_all(dut, m, tag=""):
     raw = await read_raw(dut)
     assert raw == m.acc, f"{tag}: raw acc {raw} != model {m.acc}"
     acc16 = await read_acc16(dut)
+    m.note_read_acc()
     assert acc16 == m.read_acc16(), f"{tag}: sat16 {acc16} != model {m.read_acc16()} (shift {m.shift})"
     sat_b, status = (await read_status(dut))[1:]
     assert sat_b == m.sat_byte(), f"{tag}: sat flags 0x{sat_b:02x} != 0x{m.sat_byte():02x}"
@@ -240,8 +241,9 @@ async def test_shift_floor_semantics(dut):
 
 @cocotb.test()
 async def test_readout_saturation(dut):
-    """acc beyond int16 at shift 0 clamps to +32767 / -32768 on READ_ACC (live RSAT
-    status bit), while READ_RAW still shows the exact 24-bit value."""
+    """acc beyond int16 at shift 0 clamps to +32767 / -32768 on READ_ACC and sets the
+    sticky RSAT status bit; READ_RAW still shows the exact 24-bit value. RSAT stays
+    set after a rescale removes the clamp, until CLEAR."""
     await start(dut)
     m = TMAC()
     W = [[1] * COLS, [-1] * COLS, [1] * COLS, [0] * COLS]
@@ -257,10 +259,15 @@ async def test_readout_saturation(dut):
         m.compute(clear=False)
     assert m.read_acc16()[:2] == [32767, -32768] and m.any_rsat()
     await check_all(dut, m, "readout sat")
-    m.shift = 1                                           # rescaling removes the clamp
+    assert m.rsat
+    m.shift = 1                                           # rescaling removes the clamp...
     await xfer(dut, [OP_SHIFT, 1])
     assert not m.any_rsat()
     await check_all(dut, m, "readout sat, shift 1")
+    assert m.rsat                                         # ...but RSAT is sticky
+    await xfer(dut, [OP_CLEAR])
+    m.clear()
+    await check_all(dut, m, "after CLEAR")
 
 
 @cocotb.test(skip=GL)
