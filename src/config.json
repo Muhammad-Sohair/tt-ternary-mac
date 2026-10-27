@@ -40,9 +40,12 @@
     "sky130_fd_sc_hd__clkdlybuf4s18_1", "sky130_fd_sc_hd__clkdlybuf4s18_2",
     "sky130_fd_sc_hd__clkdlybuf4s25_1", "sky130_fd_sc_hd__clkdlybuf4s25_2",
     "sky130_fd_sc_hd__clkdlybuf4s50_1", "sky130_fd_sc_hd__clkdlybuf4s50_2",
-    "sky130_fd_sc_hd__buf_1", "sky130_fd_sc_hd__clkbuf_1"
+    "sky130_fd_sc_hd__buf_1", "sky130_fd_sc_hd__clkbuf_1",
+    "sky130_fd_sc_hd__dlygate4sd1_1", "sky130_fd_sc_hd__dlygate4sd2_1", "sky130_fd_sc_hd__dlygate4sd3_1",
+    "sky130_fd_sc_hd__dlymetal6s2s_1", "sky130_fd_sc_hd__dlymetal6s4s_1", "sky130_fd_sc_hd__dlymetal6s6s_1"
   ],
   "//": "After that, the resizer picked buf_1 (weakest buffer) for 10-load fanout nets: also excluded.",
+  "//": "V3b: then it picked dlygate4sd3_1 (hold delay gate); all delay gates excluded, hold uses buffers.",
   "//": "CTS clustered 13-14 flops per leaf buffer (fanout limit 10): slow clock edges at ss.",
   "CTS_SINK_CLUSTERING_SIZE": 10,
   "//": "More slew margin during design repair (defaults 20 / 10 percent).",
