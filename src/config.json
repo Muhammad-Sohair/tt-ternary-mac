@@ -46,6 +46,9 @@
   "//": "More slew margin during design repair (defaults 20 / 10 percent).",
   "DESIGN_REPAIR_MAX_SLEW_PCT": 30,
   "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 20,
+  "//": "Post-placement repair works on estimated wiring and left 1,303 ss slew violations; run design",
+  "//": "repair again after global routing, on near-real parasitics (off by default).",
+  "RUN_POST_GRT_DESIGN_REPAIR": true,
 
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
