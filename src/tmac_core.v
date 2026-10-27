@@ -149,13 +149,11 @@ module tmac_core #(
         // Both operands are signed, so they sign-extend to ACC_W+1 bits:
         // the sum cannot wrap before the range check below.
         sum = clear_q ? dot_q[ra] : acc[ra] + dot_q[ra];
-        // sum is out of the ACC_W range exactly when its top two bits differ
-        // (the standard two's-complement overflow test); the top bit gives the
-        // direction. Equivalent to comparing against ACC_MAX / ACC_MIN, but a
-        // single XOR instead of two wide compares: the compare logic drove the
-        // last ss max-slew violation (row 1 -> sat_flags[1]).
-        if (sum[ACC_W] ^ sum[ACC_W-1]) begin
-          acc[ra] <= sum[ACC_W] ? ACC_MIN[ACC_W-1:0] : ACC_MAX[ACC_W-1:0];
+        if (sum > ACC_MAX) begin
+          acc[ra] <= ACC_MAX[ACC_W-1:0];
+          sat_flags[ra] <= 1'b1;
+        end else if (sum < ACC_MIN) begin
+          acc[ra] <= ACC_MIN[ACC_W-1:0];
           sat_flags[ra] <= 1'b1;
         end else begin
           acc[ra] <= sum[ACC_W-1:0];
