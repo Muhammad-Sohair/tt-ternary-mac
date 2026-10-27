@@ -11,7 +11,7 @@
 module tt_um_msohair_tmac #(
     parameter ROWS  = 4,
     parameter COLS  = 10,
-    parameter ACC_W = 24              // internal; exact for K <= 65,535 (|acc| <= 128*K)
+    parameter ACC_W = 16
 ) (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
