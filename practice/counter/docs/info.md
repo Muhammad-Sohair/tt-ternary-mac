@@ -1,20 +1,14 @@
-<!---
-
-This file is used to generate your project datasheet. Please fill in the information below and delete any unused
-sections.
-
-You can also include images in this folder and reference them in the markdown. Each image must be less than
-512 kb in size, and the combined size of all images must be less than 1 MB.
--->
-
 ## How it works
 
-Explain how your project works
+An 8-bit register `count` drives `uo_out`. On each rising clock edge:
+`rst_n` low clears it to 0; else `LOAD` (ui[1]) copies `uio_in` into it; else `EN` (ui[0]) increments it (wrapping 255 to 0).
+LOAD has priority over EN.
 
 ## How to test
 
-Explain how to use your project
+Hold `rst_n` low for a few clocks, then release. Set `EN` high: `uo_out` counts up once per clock.
+Put a value on `uio_in`, pulse `LOAD` for one clock: `uo_out` shows that value.
 
 ## External hardware
 
-List external hardware used in your project (e.g. PMOD, LED display, etc), if any
+None. LEDs on `uo_out` help at slow clock rates.

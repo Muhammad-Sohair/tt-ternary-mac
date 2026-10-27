@@ -1,40 +1,84 @@
-# SPDX-FileCopyrightText: © 2024 Tiny Tapeout
 # SPDX-License-Identifier: Apache-2.0
+# Practice testbench for the 8-bit loadable counter.
+# The Python model below is the "golden reference": every cycle the DUT
+# output is compared with it, bit for bit.
+
+import random
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles
+from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge, ReadOnly
 
 
-@cocotb.test()
-async def test_project(dut):
-    dut._log.info("Start")
+class CounterModel:
+    def __init__(self):
+        self.count = 0
 
-    # Set the clock period to 10 us (100 KHz)
-    clock = Clock(dut.clk, 10, unit="us")
-    cocotb.start_soon(clock.start())
+    def step(self, rst_n, en, load, value):
+        if not rst_n:
+            self.count = 0
+        elif load:
+            self.count = value
+        elif en:
+            self.count = (self.count + 1) & 0xFF
 
-    # Reset
-    dut._log.info("Reset")
+
+async def reset(dut):
     dut.ena.value = 1
     dut.ui_in.value = 0
     dut.uio_in.value = 0
     dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 10)
+    await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
 
-    dut._log.info("Test project behavior")
 
-    # Set the input values you want to test
-    dut.ui_in.value = 20
-    dut.uio_in.value = 30
+async def drive_and_check(dut, model, en, load, value):
+    await FallingEdge(dut.clk)               # drive mid-cycle, away from the sampling edge
+    dut.ui_in.value = (load << 1) | en
+    dut.uio_in.value = value
+    await RisingEdge(dut.clk)
+    model.step(1, en, load, value)
+    await ReadOnly()
+    got = int(dut.uo_out.value)
+    assert got == model.count, f"en={en} load={load} val={value}: got {got}, want {model.count}"
 
-    # Wait for one clock cycle to see the output values
-    await ClockCycles(dut.clk, 1)
 
-    # The following assersion is just an example of how to check the output values.
-    # Change it to match the actual expected output of your module:
-    assert dut.uo_out.value == 50
+@cocotb.test()
+async def test_reset_and_hold(dut):
+    cocotb.start_soon(Clock(dut.clk, 20, unit="ns").start())
+    await reset(dut)
+    await ReadOnly()
+    assert int(dut.uo_out.value) == 0, "count must be 0 after reset"
+    model = CounterModel()
+    for _ in range(5):                       # EN low: must hold
+        await drive_and_check(dut, model, 0, 0, 0)
 
-    # Keep testing the module by changing the input values, waiting for
-    # one or more clock cycles, and asserting the expected output values.
+
+@cocotb.test()
+async def test_wraparound(dut):
+    cocotb.start_soon(Clock(dut.clk, 20, unit="ns").start())
+    await reset(dut)
+    model = CounterModel()
+    await drive_and_check(dut, model, 0, 1, 0xFD)   # load 253
+    for _ in range(5):                              # 254,255,0,1,2
+        await drive_and_check(dut, model, 1, 0, 0)
+    assert model.count == 2
+
+
+@cocotb.test()
+async def test_load_priority(dut):
+    cocotb.start_soon(Clock(dut.clk, 20, unit="ns").start())
+    await reset(dut)
+    model = CounterModel()
+    await drive_and_check(dut, model, 1, 1, 0x42)   # LOAD wins over EN
+    assert model.count == 0x42
+
+
+@cocotb.test()
+async def test_random(dut):
+    cocotb.start_soon(Clock(dut.clk, 20, unit="ns").start())
+    await reset(dut)
+    model = CounterModel()
+    rng = random.Random(1234)
+    for _ in range(2000):
+        await drive_and_check(dut, model, rng.randint(0, 1), int(rng.random() < 0.1), rng.randint(0, 255))
