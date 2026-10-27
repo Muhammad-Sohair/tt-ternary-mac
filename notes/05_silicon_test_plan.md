@@ -21,12 +21,12 @@ model used in simulation.
 |---|---|---|---|
 | S0 | select the project, reset, read `uo_out` with CS_n high | `uo = 0x00` (no BIST, no flags, CS inactive) | mux + reset |
 | S1 | `STATUS` opcode | MISO byte during opcode = **0x81**; `uo[7]` (SPI_ACTIVE) high while CS_n is low | S0, clock, SPI pins |
-| S2 | pulse `ui[3]` (BIST start), wait ≥ 1 ms at 1 MHz | `uo[2]` DONE = 1, `uo[3]` PASS = 1; `READ_SIG` = **0xC8C3** | S0, clock only (S2 needs no SPI for the pass/fail pins) |
-| S3 | row 0 weights `F2 F2`, others `79` ×6 (0x79 = 121 = all zero); activations 1…10; `CMP_CLR`; `READ_RAW` | **[55, 0, 0, 0]** | S1 |
+| S2 | pulse `ui[3]` (BIST start), wait ≥ 1 ms at 1 MHz (BIST takes 384 clocks) | `uo[2]` DONE = 1, `uo[3]` PASS = 1; `READ_SIG` = **0xA97E** | S0, clock only (S2 needs no SPI for the pass/fail pins) |
+| S3 | `LOAD_W F2 79 79 79` (0xF2 = row 0 all +1, 0x79 = 121 = all zero); activations 1…5; `CMP_CLR`; `READ_RAW` | **[15, 0, 0, 0]** | S1 |
 | S4 | all 256 bytes through `LOAD_W` + `READ_W` + `STATUS` | the codes match PACKING_FORMAT; ILLEGAL set exactly for bytes 243–255 | S1 |
 | S5 | 200 random matvecs, random `CMP`/`CMP_CLR`, random shift 0–31 | raw 24-bit, sat16 readout, SAT flags and status all equal the model | S3, S4 |
-| S6 | 27 × `CMP` with ±1·127 rows, shift 0 then 1 | READ_ACC clamps to 32767 / −32768, RSAT bit set; READ_RAW exact (±34,290) | S5 |
-| S7 | streamed K = 320 matvec (`LOAD_AC`, 4 weight chunks × 8 vectors) | equal to the model | S5 |
+| S6 | 53 × `CMP` with rows (+1, −1, +1, 0) × 127, shift 0 | READ_ACC clamps to 32767 / −32768 / 32767 / 0, RSAT bit set; READ_RAW exact (+33,655 / −33,655 / +33,655 / 0) | S5 |
+| S7 | streamed K = 160 matvec (`LOAD_AC`, 4 weight chunks × 8 vectors of 5) | equal to the model | S5 |
 | S8 | BIST at 1, 5, 10, 25, 50 MHz project clock | PASS at every frequency up to the first failure: **that is measured Fmax** | S2 |
 | S9 (optional) | repeat S5 with SCK raised towards f_clk/16 | equal to the model; first failing SCK = SPI interface limit (includes the TT mux delay) | S5 |
 | S10 (optional) | measure the project supply current, idle vs BIST running at 50 MHz | a number for dynamic power (the hardening report gives the estimate to compare against) | S8 |
@@ -52,7 +52,11 @@ model used in simulation.
 
 ## What is NOT covered (known limits of this plan)
 
-- 24-bit internal saturation on silicon needs about 6,600 compute commands. That is possible (≈ 2 minutes of
-  bit-banging) but not in `run_all()`. It is covered in RTL simulation (`test_internal_saturation`).
+- 24-bit internal saturation on silicon needs about 13,200 compute commands (8,388,607 / 635). That is
+  possible (a few minutes of bit-banging) but not in `run_all()`. It is covered in RTL and gate-level
+  simulation (`test_internal_saturation`, run on the netlist with `TMAC_GL_SLOW=1`).
+- The two nets left slightly over the max-slew limit at sign-off (notes/04): `u_core.a[2][0]` and row 1's
+  saturation-detect net. Both are data nets on paths with +5.7 ns slack. If either mattered on silicon, it
+  would show up as an S8 Fmax well below the STA prediction, or as an S6 failure in row 1 only.
 - No power measurement equipment is assumed; S10 is optional.
 - One die is only one sample. Run on more than one chip if spares arrive.

@@ -1,5 +1,12 @@
 # Step 2 — TMAC spec: ternary weight-stationary MAC array for TT SKY 26d
 
+> **Correction (after hardening):** the area figures below come from Yosys mapping onto `_1` cells.
+> LibreLane maps to `_2` cells and then adds repair buffers, so the real std-cell area is **≈ 1.55×** these
+> numbers (notes/04). Option B (4×10) turned out to be ~73 % full, not ~50 %. The shipped design is 4×5 with a
+> 24-bit accumulator and `sat16(acc >>> shift)` readout, 2x2 tiles, at 57.7 % (notes/03). The command set and
+> pinout below are still accurate, except that the shipped design adds READ_RAW (0x41) and SHIFT (0x80) and
+> runs BIST in 384 clocks; docs/info.md is authoritative.
+
 ## Common architecture (all options)
 
 ```
