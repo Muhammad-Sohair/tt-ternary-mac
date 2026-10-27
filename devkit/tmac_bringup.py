@@ -103,7 +103,7 @@ def s2_bist_pin(tt):
     tt.ui_in[BIST] = 1
     time.sleep_ms(1)
     tt.ui_in[BIST] = 0
-    time.sleep_ms(5)                                 # 672 clocks = 0.67 ms at 1 MHz
+    time.sleep_ms(5)                                 # BIST: 32 x (NBYTES+COLS+3) clocks, < 1 ms at 1 MHz
     done, ok = int(tt.uo_out[DONE]), int(tt.uo_out[PASS_])
     sig = xfer(tt, [0x61], 2)[1:]
     sig = sig[0] << 8 | sig[1]
@@ -113,12 +113,14 @@ def s2_bist_pin(tt):
 
 def s3_hand_example(tt):
     xfer(tt, [0x70])
-    xfer(tt, [0x10, 0xF2, 0xF2] + [121] * 6)         # row 0 all +1, rows 1-3 all 0 (121 = digits 1)
-    xfer(tt, [0x20] + list(range(1, 11)))
+    W = [[1] * M.COLS] + [[0] * M.COLS for _ in range(M.ROWS - 1)]   # bytes 0xF2 (all +1), 0x79 (all 0)
+    xfer(tt, [0x10] + M.pack_matrix(W))
+    xfer(tt, [0x20] + list(range(1, M.COLS + 1)))
     xfer(tt, [0x31])
     raw = read_state(tt)[0]
-    print("S3 hand example: raw", raw, "(want [55, 0, 0, 0])")
-    return raw == [55, 0, 0, 0]
+    want = [M.COLS * (M.COLS + 1) // 2, 0, 0, 0]
+    print("S3 hand example: raw", raw, "(want %s)" % want)
+    return raw == want
 
 
 def s4_decoder(tt):
@@ -166,14 +168,14 @@ def s5_random(tt, trials=200, seed=1):
 def s6_saturation(tt):
     m = M.TMAC()
     xfer(tt, [0x70])
-    W = [[1] * 10, [-1] * 10, [1] * 10, [0] * 10]
+    W = [[1] * M.COLS, [-1] * M.COLS, [1] * M.COLS, [0] * M.COLS]
     xfer(tt, [0x10] + M.pack_matrix(W))
-    xfer(tt, [0x20] + [127] * 10)
+    xfer(tt, [0x20] + [127] * M.COLS)
     for i, b in enumerate(M.pack_matrix(W)):
         m.write_wbyte(i, b)
-    for i in range(10):
+    for i in range(M.COLS):
         m.write_act(i, 127)
-    for _ in range(27):
+    for _ in range(32767 // (127 * M.COLS) + 2):      # just past int16 at shift 0
         xfer(tt, [0x30])
         m.compute(False)
     ok = compare(tt, m, "S6 readout sat")
@@ -198,7 +200,7 @@ def s7_streamed(tt, chunks=4, nvec=8, seed=3):
             m.compute(False)
         xfer(tt, [0x21] + stream)
     ok = compare(tt, m, "S7 streamed")
-    print("S7 streamed K=%d matvec:" % (chunks * nvec * 10), "ok" if ok else "FAIL")
+    print("S7 streamed K=%d matvec:" % (chunks * nvec * M.COLS), "ok" if ok else "FAIL")
     return ok
 
 
