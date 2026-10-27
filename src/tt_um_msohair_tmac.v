@@ -10,8 +10,8 @@
 
 module tt_um_msohair_tmac #(
     parameter ROWS  = 4,
-    parameter COLS  = 5,
-    parameter ACC_W = 16
+    parameter COLS  = 10,
+    parameter ACC_W = 24              // internal; exact for K <= 65,535 (|acc| <= 128*K)
 ) (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
@@ -23,11 +23,16 @@ module tt_um_msohair_tmac #(
     input  wire       rst_n
 );
 
-`include "bist_expected.vh"   // defines BIST_ITERS, BIST_SEED, BIST_EXPECTED
+  // BEGIN GENERATED BIST CONSTANTS (test/tmac_model.py --write-rtl; do not edit)
+  localparam        BIST_ITERS    = 32;
+  localparam [15:0] BIST_SEED     = 16'hACE1;
+  localparam [15:0] BIST_EXPECTED = 16'h0000;
+  // END GENERATED BIST CONSTANTS
 
   localparam NBYTES  = ROWS * COLS / 5;
-  localparam ACC_B   = ACC_W / 8;            // bytes per accumulator on readout
-  localparam NACC_B  = ROWS * ACC_B;
+  localparam RAW_B   = ACC_W / 8;            // bytes per accumulator on READ_RAW
+  localparam NRAW_B  = ROWS * RAW_B;
+  localparam NOUT_B  = ROWS * 2;             // READ_ACC: int16 per row
   localparam NTRIT   = ROWS * COLS;
   localparam NW_B    = (NTRIT + 3) / 4;      // READ_W: 4 codes per byte
   localparam WA_W    = $clog2(NBYTES);
@@ -39,11 +44,13 @@ module tt_um_msohair_tmac #(
                    OP_LOAD_AC = 8'h21,   // load activations; after the last one, compute (accumulate)
                    OP_CMP     = 8'h30,   // acc += W.a
                    OP_CMP_CLR = 8'h31,   // acc  = W.a
-                   OP_READ_A  = 8'h40,   // read accumulators, row 0 first, MSB first
+                   OP_READ_A  = 8'h40,   // read sat16(acc >>> shift) per row, row 0 first, MSB first
+                   OP_READ_R  = 8'h41,   // read raw ACC_W-bit accumulators, MSB first
                    OP_READ_W  = 8'h50,   // read stored weight codes, 4 per byte, LSB = lowest index
                    OP_BIST    = 8'h60,
                    OP_READ_S  = 8'h61,   // read BIST signature, MSB first
-                   OP_CLEAR   = 8'h70;   // zero accumulators and sticky flags
+                   OP_CLEAR   = 8'h70,   // zero accumulators and sticky flags
+                   OP_SHIFT   = 8'h80;   // one data byte: readout shift = byte[4:0]
 
   wire rst = ~rst_n;
 
@@ -68,6 +75,7 @@ module tt_um_msohair_tmac #(
   reg  [WA_W-1:0] s_w_addr, w_ptr;
   reg  [AA_W-1:0] s_a_addr, a_ptr;
   reg  [7:0]      s_data;
+  reg  [4:0]      shift;     // readout requantisation shift, as in the FPGA OPMODE
 
   wire bist_busy;
 
@@ -84,7 +92,7 @@ module tt_um_msohair_tmac #(
       w_ptr   <= 0;
       a_ptr   <= 0;
       if (rst) begin
-        s_w_addr <= 0; s_a_addr <= 0; s_data <= 8'd0; s_cmp <= 1'b0;
+        s_w_addr <= 0; s_a_addr <= 0; s_data <= 8'd0; s_cmp <= 1'b0; shift <= 5'd0;
       end
     end else if (rx_valid && !have_op) begin
       have_op <= 1'b1;
@@ -108,6 +116,7 @@ module tt_um_msohair_tmac #(
           s_w_addr <= w_ptr;
           w_ptr    <= (w_ptr == NBYTES - 1) ? 0 : w_ptr + 1'b1;
         end
+        OP_SHIFT: if (idx == 8'd0) shift <= rx_byte[4:0];
         OP_LOAD_A, OP_LOAD_AC: begin
           s_a_we   <= ~bist_busy;
           s_a_addr <= a_ptr;
@@ -160,20 +169,45 @@ module tt_um_msohair_tmac #(
       .illegal_seen(illegal_seen), .w_flat(w_flat)
   );
 
+  // ---------------- requantised readout ----------------
+  // One shared shifter on the readout path: the row selected by the byte
+  // index is shifted and saturated, exactly as the FPGA's sat16_shift:
+  // arithmetic shift (floor division for negatives), then clamp to int16.
+  reg  [$clog2(ROWS)-1:0] rsel;
+  reg  signed [ACC_W-1:0] racc;
+  wire signed [ACC_W-1:0] rshift = racc >>> shift;
+  wire rs_hi = (rshift >  $signed(32'sd32767));
+  wire rs_lo = (rshift < -$signed(32'sd32768));
+  wire [15:0] rsat16 = rs_hi ? 16'h7FFF : rs_lo ? 16'h8000 : rshift[15:0];
+
+  // live flag: some row would clamp at the current shift
+  reg any_rsat;
+  reg signed [ACC_W-1:0] tmp;
+  integer q;
+  always @* begin
+    any_rsat = 1'b0;
+    for (q = 0; q < ROWS; q = q + 1) begin
+      tmp = $signed(acc_flat[q*ACC_W +: ACC_W]) >>> shift;
+      if (tmp > $signed(32'sd32767) || tmp < -$signed(32'sd32768)) any_rsat = 1'b1;
+    end
+  end
+
   // ---------------- MISO data ----------------
   wire [7:0] sat_byte = sat_flags;          // zero-extends (ROWS <= 8)
   wire [7:0] status = {1'b1, bist_busy, bist_done, bist_pass,
-                       illegal_seen, |sat_flags, 2'b01};
+                       illegal_seen, |sat_flags, any_rsat, 1'b1};
 
   // Next byte to send. While the opcode is being received the host gets
   // STATUS; afterwards byte idx of the selected stream.
-  reg [7:0] acc_byte, w_byte_out;
+  reg [7:0] raw_byte, w_byte_out;
   integer j;
   always @* begin
-    acc_byte = 8'd0;
-    for (j = 0; j < NACC_B; j = j + 1)
+    rsel = idx[$clog2(ROWS):1];
+    racc = acc_flat[rsel*ACC_W +: ACC_W];
+    raw_byte = 8'd0;
+    for (j = 0; j < NRAW_B; j = j + 1)
       if (idx == j)
-        acc_byte = acc_flat[(j / ACC_B) * ACC_W + (ACC_B - 1 - (j % ACC_B)) * 8 +: 8];
+        raw_byte = acc_flat[(j / RAW_B) * ACC_W + (RAW_B - 1 - (j % RAW_B)) * 8 +: 8];
     w_byte_out = 8'd0;
     for (j = 0; j < NW_B; j = j + 1)
       if (idx == j)
@@ -187,7 +221,8 @@ module tt_um_msohair_tmac #(
     if (!have_op) tx_byte = status;
     else case (op)
       OP_STATUS: tx_byte = (idx == 8'd0) ? sat_byte : status;
-      OP_READ_A: tx_byte = acc_byte;
+      OP_READ_A: tx_byte = (idx >= NOUT_B) ? 8'd0 : idx[0] ? rsat16[7:0] : rsat16[15:8];
+      OP_READ_R: tx_byte = raw_byte;
       OP_READ_W: tx_byte = w_byte_out;
       OP_READ_S: tx_byte = (idx == 8'd0) ? bist_sig[15:8] : (idx == 8'd1) ? bist_sig[7:0] : 8'd0;
       default:   tx_byte = status;

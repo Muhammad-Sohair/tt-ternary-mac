@@ -60,14 +60,15 @@ module tmac_bist #(
   assign clear   = (iter[1:0] == 2'd0);
   assign data    = (state == S_W && raw > 8'd242) ? raw - 8'd243 : raw;
 
-  // XOR-fold of all accumulators (low 16 bits), row r rotated left by r
+  // XOR-fold of all accumulators: each row's ACC_W bits folded to 16
+  // (low 16 XOR the rest), then rotated left by the row index
   reg [15:0] fold;
   reg [15:0] row16;
   integer r;
   always @* begin
     fold = 16'd0;
     for (r = 0; r < ROWS; r = r + 1) begin
-      row16 = acc_flat[r*ACC_W +: 16];
+      row16 = acc_flat[r*ACC_W +: 16] ^ (acc_flat[r*ACC_W +: ACC_W] >> 16);
       fold  = fold ^ ((row16 << (r % 16)) | (row16 >> ((16 - (r % 16)) % 16)));
     end
   end
