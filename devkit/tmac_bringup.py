@@ -102,7 +102,7 @@ def s2_bist_pin(tt):
     tt.ui_in[BIST] = 1
     time.sleep_ms(1)
     tt.ui_in[BIST] = 0
-    time.sleep_ms(5)                                 # 640 clocks = 0.64 ms at 1 MHz
+    time.sleep_ms(5)                                 # 672 clocks = 0.67 ms at 1 MHz
     done, ok = int(tt.uo_out[DONE]), int(tt.uo_out[PASS_])
     sig = xfer(tt, [0x61], 2)[1:]
     sig = sig[0] << 8 | sig[1]

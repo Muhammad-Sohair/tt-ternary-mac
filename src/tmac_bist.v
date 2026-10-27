@@ -43,7 +43,7 @@ module tmac_bist #(
 );
 
   localparam NBYTES = ROWS * COLS / 5;
-  localparam S_IDLE = 3'd0, S_W = 3'd1, S_A = 3'd2, S_CMP = 3'd3, S_SIG = 3'd4;
+  localparam S_IDLE = 3'd0, S_W = 3'd1, S_A = 3'd2, S_CMP = 3'd3, S_WAIT = 3'd4, S_SIG = 3'd5;
 
   reg [2:0]  state;
   reg [15:0] lfsr;
@@ -115,7 +115,8 @@ module tmac_bist #(
             state  <= S_CMP;
           end
         end
-        S_CMP: state <= S_SIG;            // core updates acc this edge
+        S_CMP:  state <= S_WAIT;          // core registers the dot products
+        S_WAIT: state <= S_SIG;           // core updates the accumulators
         S_SIG: begin
           signature <= sig_next;
           iter      <= iter + 1'b1;

@@ -56,9 +56,22 @@ module tmac_core #(
   reg  signed [ACC_W-1:0] acc [0:ROWS-1];
 
   // ---- weight load through the shared decoder ----
+  // The write port is registered first, so the decoder's compare/subtract
+  // chain starts at a flop. Without this stage the path BIST mux -> LFSR
+  // legalise -> decoder -> weight register missed 50 MHz at ss/100C by 3 ns.
+  // Cost: weights land one cycle after w_we, invisible at the SPI level.
+  reg                               w_we_q;
+  reg  [$clog2(ROWS*COLS/5)-1:0]    w_addr_q;
+  reg  [7:0]                        w_byte_q;
+  always @(posedge clk) begin
+    w_we_q   <= rst ? 1'b0 : w_we;
+    w_addr_q <= w_addr;
+    w_byte_q <= w_byte;
+  end
+
   wire [9:0] dec_codes;
   wire       dec_illegal;
-  trit_decoder u_dec (.byte_in(w_byte), .codes(dec_codes), .illegal(dec_illegal));
+  trit_decoder u_dec (.byte_in(w_byte_q), .codes(dec_codes), .illegal(dec_illegal));
 
   // Each always block has its own loop variables: sharing one integer
   // between blocks simulates fine but is a multiple-driver error in synthesis.
@@ -69,8 +82,8 @@ module tmac_core #(
       illegal_seen <= 1'b0;
     end else if (acc_rst) begin
       illegal_seen <= 1'b0;
-    end else if (w_we) begin
-      for (k = 0; k < 5; k = k + 1) w[w_addr*5 + k] <= dec_codes[2*k +: 2];
+    end else if (w_we_q) begin
+      for (k = 0; k < 5; k = k + 1) w[w_addr_q*5 + k] <= dec_codes[2*k +: 2];
       if (dec_illegal) illegal_seen <= 1'b1;
     end
   end
@@ -110,6 +123,20 @@ module tmac_core #(
     end
   end
 
+  // ---- pipeline register: dot products, compute and clear ----
+  // The adder tree and the saturating accumulate are split across two
+  // cycles (the single-cycle version missed 50 MHz at ss/100C by 1.2 ns).
+  // A compute strobe at cycle t uses W and a as they are in cycle t; the
+  // accumulators change at the end of cycle t+1.
+  reg signed [DOT_W-1:0] dot_q [0:ROWS-1];
+  reg                    compute_q, clear_q;
+  integer rq;
+  always @(posedge clk) begin
+    compute_q <= rst ? 1'b0 : compute;
+    clear_q   <= clear;
+    for (rq = 0; rq < ROWS; rq = rq + 1) dot_q[rq] <= dot[rq];
+  end
+
   // ---- saturating accumulate ----
   reg signed [ACC_W:0] sum;
   integer ra;
@@ -117,11 +144,11 @@ module tmac_core #(
     if (rst || acc_rst) begin
       for (ra = 0; ra < ROWS; ra = ra + 1) acc[ra] <= {ACC_W{1'b0}};
       sat_flags <= {ROWS{1'b0}};
-    end else if (compute) begin
+    end else if (compute_q) begin
       for (ra = 0; ra < ROWS; ra = ra + 1) begin
         // Both operands are signed, so they sign-extend to ACC_W+1 bits:
         // the sum cannot wrap before the range check below.
-        sum = clear ? dot[ra] : acc[ra] + dot[ra];
+        sum = clear_q ? dot_q[ra] : acc[ra] + dot_q[ra];
         if (sum > ACC_MAX) begin
           acc[ra] <= ACC_MAX[ACC_W-1:0];
           sat_flags[ra] <= 1'b1;

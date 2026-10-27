@@ -33,7 +33,7 @@ before the first SCK edge, and high ≥ 8 clk between frames.
 | 0x40 | READ_ACC | out: 4 × int16 `sat16(acc >>> shift)`, row 0 first, MSB first |
 | 0x41 | READ_RAW | out: 4 × 24-bit accumulators, MSB first |
 | 0x50 | READ_W | out: 10 bytes of stored 2-bit codes (−1=11, 0=00, +1=01), 4 per byte, lowest index in LSBs |
-| 0x60 | BIST | start the self-test (busy for 640 clk) |
+| 0x60 | BIST | start the self-test (busy for 672 clk) |
 | 0x61 | READ_SIG | out: 16-bit BIST signature, MSB first (expected 0xC8C3) |
 | 0x70 | CLEAR | zero accumulators, SAT and ILLEGAL flags |
 | 0x80 | SHIFT | in: one byte, readout shift = bits 4:0 |
@@ -44,7 +44,7 @@ bit1 RSAT (a row would clamp on READ_ACC at the current shift), bit0 = 1`. After
 ## How to test
 
 1. Reset, then read STATUS: you should get 0x81.
-2. Pulse `ui[3]` (BIST_START). After ~640 clocks `uo[2]` (DONE) and `uo[3]` (PASS) go high. This needs no SPI.
+2. Pulse `ui[3]` (BIST_START). After ~672 clocks `uo[2]` (DONE) and `uo[3]` (PASS) go high. This needs no SPI.
 3. Over SPI, try a hand-checkable example. Weights row 0 = all +1: bytes `0xF2, 0xF2` (242 = all digits 2).
    Activations 1…10. Then `CMP_CLR` and `READ_ACC`: row 0 = 55, rows 1–3 = 0 (their weights are still 0 after
    reset).
