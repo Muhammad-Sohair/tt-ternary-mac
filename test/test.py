@@ -7,7 +7,7 @@ import random
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge, ReadOnly
+from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 
 
 class CounterModel:
@@ -29,16 +29,20 @@ async def reset(dut):
     dut.uio_in.value = 0
     dut.rst_n.value = 0
     await ClockCycles(dut.clk, 5)
+    await FallingEdge(dut.clk)
     dut.rst_n.value = 1
 
 
 async def drive_and_check(dut, model, en, load, value):
-    await FallingEdge(dut.clk)               # drive mid-cycle, away from the sampling edge
+    # Called at a falling edge. Drive inputs here, let the rising edge capture
+    # them, then sample at the next falling edge. Sampling mid-cycle (not right
+    # after the rising edge) matters for gate-level sim: every cell has a
+    # delay, so Q changes *after* the edge, just as on silicon.
     dut.ui_in.value = (load << 1) | en
     dut.uio_in.value = value
     await RisingEdge(dut.clk)
     model.step(1, en, load, value)
-    await ReadOnly()
+    await FallingEdge(dut.clk)
     got = int(dut.uo_out.value)
     assert got == model.count, f"en={en} load={load} val={value}: got {got}, want {model.count}"
 
@@ -47,7 +51,6 @@ async def drive_and_check(dut, model, en, load, value):
 async def test_reset_and_hold(dut):
     cocotb.start_soon(Clock(dut.clk, 20, unit="ns").start())
     await reset(dut)
-    await ReadOnly()
     assert int(dut.uo_out.value) == 0, "count must be 0 after reset"
     model = CounterModel()
     for _ in range(5):                       # EN low: must hold
