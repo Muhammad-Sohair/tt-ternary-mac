@@ -31,6 +31,22 @@
   "//": "https://tinytapeout.com/faq/#how-can-i-map-an-additional-external-clock-to-one-of-the-gpios",
   "CLOCK_PORT": "clk",
 
+  "//": "--- TMAC slew fixes (see notes/04_signoff.md) ---",
+  "//": "The resizer used clkdlybuf4s* clock-DELAY cells as fanout buffers. They are deliberately weak,",
+  "//": "so their 10-load nets transitioned in ~1.5 ns at ss/100C against a 0.75 ns limit (108 of 143 nets).",
+  "//": "Excluded here so repair uses real buffers; hold fixing uses dlygate4sd* and is unaffected.",
+  "EXTRA_EXCLUDED_CELLS": [
+    "sky130_fd_sc_hd__clkdlybuf4s15_1", "sky130_fd_sc_hd__clkdlybuf4s15_2",
+    "sky130_fd_sc_hd__clkdlybuf4s18_1", "sky130_fd_sc_hd__clkdlybuf4s18_2",
+    "sky130_fd_sc_hd__clkdlybuf4s25_1", "sky130_fd_sc_hd__clkdlybuf4s25_2",
+    "sky130_fd_sc_hd__clkdlybuf4s50_1", "sky130_fd_sc_hd__clkdlybuf4s50_2"
+  ],
+  "//": "CTS clustered 13-14 flops per leaf buffer (fanout limit 10): slow clock edges at ss.",
+  "CTS_SINK_CLUSTERING_SIZE": 10,
+  "//": "More slew margin during design repair (defaults 20 / 10 percent).",
+  "DESIGN_REPAIR_MAX_SLEW_PCT": 30,
+  "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 20,
+
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
