@@ -29,6 +29,11 @@ def setup(tt, hz=PROJECT_HZ):
     tt.shuttle.tt_um_msohair_tmac.enable()
     tt.ui_in.value = 0b0010                      # CS_n high, SCK low, BIST low
     tt.clock_project_PWM(hz)
+    reset(tt)
+
+
+def reset(tt):
+    """Each stage starts from reset: the BIST DONE/PASS flags and the readout shift outlive CLEAR."""
     tt.reset_project(True)
     time.sleep_ms(10)
     tt.reset_project(False)
@@ -227,6 +232,7 @@ def run_all(tt):
     out = {}
     for name, fn in (("S1", s1_alive), ("S2", s2_bist_pin), ("S3", s3_hand_example), ("S4", s4_decoder),
                      ("S5", s5_random), ("S6", s6_saturation), ("S7", s7_streamed)):
+        reset(tt)
         out[name] = fn(tt)
     out["S8"] = s8_clock_sweep(tt)
     print("SUMMARY", out)

@@ -19,6 +19,11 @@ Mutation check (6 injected bugs, all caught): ±1 code swap in the decoder (2 te
 arithmetic shift, missing +1 carry-ins of negated terms, wrapping instead of saturating, LOAD_AC not
 computing.
 
+`test_devkit.py` runs the board script `devkit/tmac_bringup.py` against the RTL: its own `run_all()` in a cocotb
+bridge thread, with a fake `tt` object that has the firmware API the script uses. S1–S7 run in full (S4 all 256
+bytes, S5 200 trials); S8, the BIST clock sweep, is stubbed because it measures silicon, not RTL. Not in the
+default run (about 5 min): `mingw32-make COCOTB_TEST_MODULES=test_devkit`.
+
 ## Running on Windows
 
 ```

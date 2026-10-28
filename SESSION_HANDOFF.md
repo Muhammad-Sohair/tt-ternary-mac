@@ -11,6 +11,18 @@
 - Verification: RTL 9/9; gate level 9/9 on the signed-off netlist including the 24-bit saturation test
   (local) and CI `gl_test`; mutation batch on the shipped RTL (results in notes/03).
 
+## Devkit script fix (2026-10-29, after `signoff-v7`; no design file changed)
+
+- **Bug:** `run_all()` reset the chip once, then ran S1–S7 back to back. S2's BIST leaves DONE/PASS set in the
+  status byte (CLEAR does not clear them), and S5's last SHIFT stays in force for S6/S7. S5–S7 compare against a
+  fresh model, so on a working chip they reported status 0xb1 vs 0x81 and failed: S5 200/200 trials, S6, S7.
+  Found by the v2 RTL harness (v2 notes/v2_04), reproduced here on the v1 RTL with `test/test_devkit.py`.
+- **Fix:** `reset(tt)` (pulse `reset_project`) before every stage in `run_all()`. With it, S1–S7 all pass on the
+  v1 RTL (S8 stubbed: silicon only). Commit after `signoff-v7`; the tag still points at the signed-off commit,
+  and `src/`, `info.yaml` and the hardened outputs are untouched.
+- The script was syntax-checked only before this; it has now run end to end against the RTL. The firmware
+  itself is still not simulated.
+
 ## Step 0 facts (verified 2026-10-27; re-check before acting)
 
 | item | value | source |
@@ -32,8 +44,8 @@
 
 ## Repo map
 
-- `src/` RTL · `test/` model + cocotb · `devkit/` MicroPython bring-up (syntax-checked only: no board
-  available to run it) · `notes/01-05` the full story · `practice/counter/` Step 1.
+- `src/` RTL · `test/` model + cocotb · `devkit/` MicroPython bring-up (run against the RTL by
+  `test/test_devkit.py`; no board yet) · `notes/01-05` the full story · `practice/counter/` Step 1.
 - Branches: `eval/*` hold the evidence runs (keep; notes/04 cites them). Tag `acc24-shift-ref` = 4×10
   24-bit reference. Local worktrees `../tt-ternary-mac-{3x2,v2,v3b,v4b}` can be removed with
   `git worktree remove` once you no longer need them.
